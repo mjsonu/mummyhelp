@@ -132,7 +132,7 @@ def update_dcr_gsheet(new_data_df):
             if sid.upper() == 'NIL' and sname.upper() == 'NIL' and sclass.upper() == 'NIL':
                 row_values = [
                     last_sl, 'NEW GARIA', '', '', '', 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 
-                    '', date_val, '', '', '', 'NILL'
+                    '', date_val, '', '', '', 'NIL'
                 ]
             else:
                 row_values = [
