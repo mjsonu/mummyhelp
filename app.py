@@ -280,9 +280,9 @@ with add_tab:
             st.session_state["form_counter"] += 1
             st.rerun()
         # --- ADD IT HERE AT THE VERY BOTTOM OF THE TAB ---
-        if st.session_state.get("payment_success"):
-            st.success("✅ Payment details captured and saved successfully!")
-            st.session_state["payment_success"] = False
+    if st.session_state.get("payment_success"):
+        st.success("✅ Payment details captured and saved successfully!")
+        st.session_state["payment_success"] = False
 
 # --------------------------------------------------
 # TAB 2: REVIEW COLLECTION
