@@ -73,12 +73,13 @@ def run_swipe_for_date(username: str, password: str, punch_date: datetime.date) 
             # 6. Submit Form
             page.click("#ctl00_BodyContentPlaceHolder_btnSave")
 
-            # Wait for redirection back to the list page
-            page.wait_for_url("**/SwipeRequestList.aspx*", timeout=20000)
+            # CRITICAL FIX: Wait for the Save button to disappear instead of watching the URL
+            # This perfectly handles both full page reloads and ASP.NET AJAX partial postbacks
+            page.wait_for_selector("#ctl00_BodyContentPlaceHolder_btnSave", state="hidden", timeout=30000)
             
             # Use 'tbody tr' to handle jQuery DataTables rendering
             row_locator = page.locator("#ctl00_BodyContentPlaceHolder_GridView1 tbody tr").first
-            row_locator.wait_for(state="visible", timeout=15000)
+            row_locator.wait_for(state="visible", timeout=30000)
             
             latest_row = row_locator.inner_text().replace("\n", " | ")
             
