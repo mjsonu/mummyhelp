@@ -1,9 +1,7 @@
-libgconf-2-4
-libatk1.0-0
-libatk-bridge2.0-0
-libgdk-pixbuf2.0-0
-libgtk-3-0
-libgbm-dev
-libnss3-dev
-libxss-dev
+libnss3
+libxss1
 libasound2
+libgbm1
+libgtk-3-0
+libxdamage1
+libgdk-pixbuf-xlib-2.0-0
