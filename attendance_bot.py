@@ -74,7 +74,6 @@ def run_swipe_for_date(username: str, password: str, punch_date: datetime.date) 
             page.click("#ctl00_BodyContentPlaceHolder_btnSave")
 
             # CRITICAL FIX: Wait for the Save button to disappear instead of watching the URL
-            # This perfectly handles both full page reloads and ASP.NET AJAX partial postbacks
             page.wait_for_selector("#ctl00_BodyContentPlaceHolder_btnSave", state="hidden", timeout=30000)
             
             # Use 'tbody tr' to handle jQuery DataTables rendering
