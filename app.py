@@ -192,13 +192,7 @@ add_tab, review_tab, attendance_tab = st.tabs(["Add Payment", "Review Collection
 # --------------------------------------------------
 # TAB 1: ADD PAYMENT
 # --------------------------------------------------
-with add_tab:
-    # --- ADD THIS BLOCK ---
-    if st.session_state.get("payment_success"):
-        st.success("✅ Payment details captured and saved successfully!")
-        st.session_state["payment_success"] = False  # Reset so it only shows once
-    # ----------------------
-    
+with add_tab:  
     st.markdown('<div class="section-title">Payment Details</div>', unsafe_allow_html=True)
     payment_date = st.date_input("Date", key=_k("payment_date"))
 
@@ -285,6 +279,10 @@ with add_tab:
             st.session_state["payment_success"] = True  
             st.session_state["form_counter"] += 1
             st.rerun()
+        # --- ADD IT HERE AT THE VERY BOTTOM OF THE TAB ---
+        if st.session_state.get("payment_success"):
+            st.success("✅ Payment details captured and saved successfully!")
+            st.session_state["payment_success"] = False
 
 # --------------------------------------------------
 # TAB 2: REVIEW COLLECTION
