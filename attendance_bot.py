@@ -1,4 +1,3 @@
-import os
 import sys
 import asyncio
 from playwright.sync_api import sync_playwright
@@ -9,7 +8,6 @@ if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
 BASE_URL = "https://skrmt.spinenx.in"
-STATE_FILE = "spine_session.json"  # Stores login cookies on the cloud server
 
 # Static system defaults
 FIXED_CATEGORY = "1"           
@@ -21,104 +19,72 @@ FIXED_REASON = "Daily Attendance"
 def run_swipe_for_date(username: str, password: str, punch_date: datetime.date) -> dict:
     formatted_date = punch_date.strftime("%d-%b-%y")
 
-    # Allow up to 2 attempts. If the session expires on attempt 1, it deletes the cache and tries again.
-    for attempt in range(2):
-        with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        # Always start a completely fresh session
+        context = browser.new_context()
+        page = context.new_page()
+
+        try:
+            # 1. Go directly to Login Page
+            page.goto(f"{BASE_URL}/login.aspx", wait_until="domcontentloaded")
+
+            # Dismiss cookie consent modal if active
+            if page.locator("#dvModal").is_visible():
+                page.locator("#btnAccept").click()
+                page.wait_for_selector("#dvModal", state="hidden")
+
+            # 2. Fill Credentials & Log In
+            page.select_option("#dpCompanyCodeList", "SKRMT")
+            page.select_option("#dpConnectAs", "User")
+            page.fill("#txtUser", username)
+            page.fill("#txtPassword", password)
             
-            # 1. Load saved session if it exists to bypass login
-            if os.path.exists(STATE_FILE):
-                context = browser.new_context(storage_state=STATE_FILE)
-            else:
-                context = browser.new_context()
+            # Click login and wait for the immediate POST request to finish
+            with page.expect_navigation(timeout=30000):
+                page.click("#btnLogin")
+            
+            # 3. Navigate to the Swipe Request List
+            page.goto(f"{BASE_URL}/Atten/SwipeRequestList.aspx?mnusr=menu__10201", wait_until="domcontentloaded")
 
-            page = context.new_page()
+            # 4. Trigger 'Add New' via ASP.NET PostBack
+            page.evaluate("__doPostBack('ctl00$BodyContentPlaceHolder$Menu1', 'Add New')")
+            page.wait_for_selector("#ctl00_BodyContentPlaceHolder_btnSave", timeout=15000)
 
-            try:
-                # 2. Try going directly to the Swipe Request Page
-                page.goto(f"{BASE_URL}/Atten/SwipeRequestList.aspx?mnusr=menu__10201", wait_until="domcontentloaded")
+            # 5. Fill Fixed Fields
+            page.select_option("#ctl00_BodyContentPlaceHolder_drpSwipeCategory", FIXED_CATEGORY)
+            page.wait_for_timeout(1000)  # Wait for UpdatePanel partial refresh
 
-                # If the server immediately flags the session as expired, route to login
-                if "SessionExp.aspx" in page.url:
-                    page.goto(f"{BASE_URL}/login.aspx", wait_until="domcontentloaded")
+            page.fill("#ctl00_BodyContentPlaceHolder_txtFromDate", formatted_date)
+            page.press("#ctl00_BodyContentPlaceHolder_txtFromDate", "Tab")
+            page.wait_for_timeout(800)
 
-                # 3. Check if we got redirected to the login page (session missing or expired)
-                if "login.aspx" in page.url.lower() or page.locator("#txtUser").is_visible():
-                    
-                    # Dismiss cookie consent modal if active
-                    if page.locator("#dvModal").is_visible():
-                        page.locator("#btnAccept").click()
-                        page.wait_for_selector("#dvModal", state="hidden")
+            page.select_option("#ctl00_BodyContentPlaceHolder_dpInout", FIXED_INOUT_MODE)
+            
+            # Wait for the ASP.NET postback to finish enabling the Out Time field
+            page.wait_for_selector("#ctl00_BodyContentPlaceHolder_txtOuttime:not([disabled])", timeout=15000)
+            page.wait_for_timeout(500)
 
-                    # Fill Credentials
-                    page.select_option("#dpCompanyCodeList", "SKRMT")
-                    page.select_option("#dpConnectAs", "User")
-                    page.fill("#txtUser", username)
-                    page.fill("#txtPassword", password)
-                    
-                    # Click login and wait for the immediate POST request to finish
-                    with page.expect_navigation(timeout=30000):
-                        page.click("#btnLogin")
-                    
-                    # Save the new session cookies
-                    context.storage_state(path=STATE_FILE)
-                    
-                    # Navigate back to the target page
-                    page.goto(f"{BASE_URL}/Atten/SwipeRequestList.aspx?mnusr=menu__10201", wait_until="domcontentloaded")
+            # Force the time values using JavaScript to bypass the ASP.NET MaskedEdit Extender
+            page.evaluate(f"document.getElementById('ctl00_BodyContentPlaceHolder_txtInTime').value = '{FIXED_IN_TIME}';")
+            page.evaluate(f"document.getElementById('ctl00_BodyContentPlaceHolder_txtOuttime').value = '{FIXED_OUT_TIME}';")
+            page.evaluate(f"document.getElementById('ctl00_BodyContentPlaceHolder_txtReason').value = '{FIXED_REASON}';")
 
-                # 4. Trigger 'Add New' via ASP.NET PostBack
-                page.evaluate("__doPostBack('ctl00$BodyContentPlaceHolder$Menu1', 'Add New')")
-                
-                # CRITICAL FIX: Check if the PostBack threw us to the Session Expired page
-                try:
-                    page.wait_for_selector("#ctl00_BodyContentPlaceHolder_btnSave", timeout=15000)
-                except Exception as inner_e:
-                    # If we got redirected to SessionExp.aspx or login.aspx, the session is dead
-                    if "SessionExp.aspx" in page.url or "login.aspx" in page.url.lower():
-                        browser.close()
-                        if os.path.exists(STATE_FILE):
-                            os.remove(STATE_FILE) # Delete the expired cache
-                        
-                        if attempt == 0:
-                            continue # Try the loop again (this time it will log in fresh)
-                        else:
-                            return {"status": "error", "date": formatted_date, "message": "Session failed to renew."}
-                    raise inner_e # Re-raise if it's a normal timeout on the correct page
+            # 6. Submit Form
+            page.click("#ctl00_BodyContentPlaceHolder_btnSave")
 
-                # 5. Fill Fixed Fields
-                page.select_option("#ctl00_BodyContentPlaceHolder_drpSwipeCategory", FIXED_CATEGORY)
-                page.wait_for_timeout(1000)  # Wait for UpdatePanel partial refresh
+            # Wait for redirection back to the list page
+            page.wait_for_url("**/SwipeRequestList.aspx*", timeout=20000)
+            
+            # Use 'tbody tr' to handle jQuery DataTables rendering
+            row_locator = page.locator("#ctl00_BodyContentPlaceHolder_GridView1 tbody tr").first
+            row_locator.wait_for(state="visible", timeout=15000)
+            
+            latest_row = row_locator.inner_text().replace("\n", " | ")
+            
+            browser.close()
+            return {"status": "success", "date": formatted_date, "details": latest_row}
 
-                page.fill("#ctl00_BodyContentPlaceHolder_txtFromDate", formatted_date)
-                page.press("#ctl00_BodyContentPlaceHolder_txtFromDate", "Tab")
-                page.wait_for_timeout(800)
-
-                page.select_option("#ctl00_BodyContentPlaceHolder_dpInout", FIXED_INOUT_MODE)
-                
-                # Wait for the ASP.NET postback to finish enabling the Out Time field
-                page.wait_for_selector("#ctl00_BodyContentPlaceHolder_txtOuttime:not([disabled])", timeout=15000)
-                page.wait_for_timeout(500)
-
-                # Force the time values using JavaScript to bypass the ASP.NET MaskedEdit Extender
-                page.evaluate(f"document.getElementById('ctl00_BodyContentPlaceHolder_txtInTime').value = '{FIXED_IN_TIME}';")
-                page.evaluate(f"document.getElementById('ctl00_BodyContentPlaceHolder_txtOuttime').value = '{FIXED_OUT_TIME}';")
-                page.evaluate(f"document.getElementById('ctl00_BodyContentPlaceHolder_txtReason').value = '{FIXED_REASON}';")
-
-                # 6. Submit Form
-                page.click("#ctl00_BodyContentPlaceHolder_btnSave")
-
-                # Wait for redirection back to the list page
-                page.wait_for_url("**/SwipeRequestList.aspx*", timeout=20000)
-                
-                # Use 'tbody tr' to handle jQuery DataTables rendering
-                row_locator = page.locator("#ctl00_BodyContentPlaceHolder_GridView1 tbody tr").first
-                row_locator.wait_for(state="visible", timeout=15000)
-                
-                latest_row = row_locator.inner_text().replace("\n", " | ")
-                
-                browser.close()
-                return {"status": "success", "date": formatted_date, "details": latest_row}
-
-            except Exception as e:
-                browser.close()
-                return {"status": "error", "date": formatted_date, "message": str(e)}
+        except Exception as e:
+            browser.close()
+            return {"status": "error", "date": formatted_date, "message": str(e)}
