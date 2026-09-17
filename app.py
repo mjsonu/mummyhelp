@@ -1,15 +1,30 @@
+import os
+import sys
+import asyncio
+
+# --------------------------------------------------
+# SYSTEM CONFIG FOR CLOUD PLAYWRIGHT 
+# --------------------------------------------------
+# Windows Asyncio Fix
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+
+# Force Playwright browser install on Streamlit Community Cloud
+os.system("playwright install chromium")
+
 import streamlit as st
 import pandas as pd
 import datetime
 import urllib.parse
 import gspread
 from google.oauth2.service_account import Credentials
+from attendance_bot import run_swipe_for_date
 
 # --------------------------------------------------
 # PAGE CONFIG & CSS
 # --------------------------------------------------
 
-st.set_page_config(page_title="Fee Management", page_icon="💰", layout="centered")
+st.set_page_config(page_title="Dashboard", page_icon="💼", layout="centered", initial_sidebar_state="collapsed")
 
 st.markdown("""
 <style>
@@ -42,15 +57,13 @@ STUDENTS = {
 }
 
 # --------------------------------------------------
-# CACHED GLOBAL PAYMENTS (Survives Page Refreshes)
+# CACHED GLOBAL PAYMENTS
 # --------------------------------------------------
 
 @st.cache_resource
 def get_global_payments():
-    # This list will persist on the server until the app reboots
     return []
 
-# Retrieve the global list
 payments_cache = get_global_payments()
 
 def append_payment(record: dict):
@@ -60,7 +73,6 @@ def get_payments_df():
     return pd.DataFrame(payments_cache)
 
 def delete_payment_by_created_at(created_at_value: str):
-    # Modify the list in-place so we don't break the Streamlit cache reference
     payments_cache[:] = [p for p in payments_cache if p.get("created_at") != created_at_value]
 
 def clear_all_payments():
@@ -70,7 +82,6 @@ def clear_all_payments():
 # GOOGLE SHEETS AUTOMATION
 # --------------------------------------------------
 
-# Replace with your actual Google Sheet URL
 GSHEET_URL = "https://docs.google.com/spreadsheets/d/15dzIujFQ0xx6zqVYkb9phEGndPfucjkttjef4QcBncg/edit"
 
 def get_gspread_client():
@@ -132,7 +143,7 @@ def update_dcr_gsheet(new_data_df):
             if sid.upper() == 'NIL' and sname.upper() == 'NIL' and sclass.upper() == 'NIL':
                 row_values = [
                     last_sl, 'NEW GARIA', '', '', '', 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 
-                    '', date_val, '', '', '', 'NIL'
+                    '', date_val, '', '', '', 'NILL'
                 ]
             else:
                 row_values = [
@@ -157,7 +168,6 @@ def update_dcr_gsheet(new_data_df):
     except Exception as e:
         return f"Google Sheets Error: {e}"
 
-# Form counter for resetting widgets
 if "form_counter" not in st.session_state: 
     st.session_state["form_counter"] = 0
 
@@ -170,15 +180,18 @@ def _k(name: str) -> str:
 
 left, right = st.columns([8, 2])
 with left:
-    st.title("💰 Fee Management")
-    st.markdown('<div class="subtitle">Student Payment Entry</div>', unsafe_allow_html=True)
+    st.title("💼 Management Dashboard")
+    st.markdown('<div class="subtitle">Fee Collection & Daily Attendance</div>', unsafe_allow_html=True)
 with right:
     if st.button("New Day", key="new_day"):
         clear_all_payments()
         st.rerun()
 
-add_tab, review_tab = st.tabs(["Add Payment", "Review Collection"])
+add_tab, review_tab, attendance_tab = st.tabs(["Add Payment", "Review Collection", "Attendance Swipe"])
 
+# --------------------------------------------------
+# TAB 1: ADD PAYMENT
+# --------------------------------------------------
 with add_tab:
     st.markdown('<div class="section-title">Payment Details</div>', unsafe_allow_html=True)
     payment_date = st.date_input("Date", key=_k("payment_date"))
@@ -236,7 +249,7 @@ with add_tab:
         unsafe_allow_html=True
     )
 
-    if st.button("SUBMIT PAYMENT", type="primary"):
+    if st.button("SUBMIT PAYMENT", type="primary", key="submit_payment_btn"):
         is_nil_entry = False
         try:
             is_nil_entry = (
@@ -267,6 +280,9 @@ with add_tab:
             st.session_state["form_counter"] += 1
             st.rerun()
 
+# --------------------------------------------------
+# TAB 2: REVIEW COLLECTION
+# --------------------------------------------------
 with review_tab:
     st.markdown('<div class="section-title">Today\'s Collections</div>', unsafe_allow_html=True)
     payments_df = get_payments_df()
@@ -296,12 +312,40 @@ with review_tab:
 
             st.markdown(f"**Total collected today:** ₹{total_today:,.2f}")
 
-            if st.button("Sync with Google Sheets", type="primary"):
+            if st.button("Sync with Google Sheets", type="primary", key="sync_gsheets"):
                 with st.spinner("Syncing with Google Sheets..."):
                     gsheet_status = update_dcr_gsheet(today_df)
                     if "Error" in gsheet_status: 
                         st.error(gsheet_status)
                     else: 
                         st.success(gsheet_status)
-                        # Optionally clear the cache after a successful sync:
-                        # clear_all_payments()
+
+# --------------------------------------------------
+# TAB 3: ATTENDANCE SWIPE
+# --------------------------------------------------
+with attendance_tab:
+    st.markdown('<div class="section-title">Spine HR Attendance Automation</div>', unsafe_allow_html=True)
+    
+    # Fetch credentials directly from .streamlit/secrets.toml (or Streamlit Cloud Secrets)
+    emp_user = st.secrets.get("SPINE_USER", "")
+    emp_pass = st.secrets.get("SPINE_PASS", "")
+
+    # Date selection
+    today_date = datetime.date.today()
+    selected_attendance_date = st.date_input("Select day to mark attendance:", value=today_date, max_value=today_date, key="attendance_picker")
+
+    st.caption("Defaults applied: **Mode:** Both (8:30 AM – 4:30 PM) | **Category:** SwipeReq | **Reason:** Daily Attendance")
+
+    # Trigger button
+    if st.button(f"👉 Swipe Attendance for {selected_attendance_date.strftime('%A, %d %b %Y')}", type="primary", use_container_width=True, key="attendance_swipe_btn"):
+        if not emp_user or not emp_pass:
+            st.error("Credentials missing. Please verify `SPINE_USER` and `SPINE_PASS` inside `.streamlit/secrets.toml` or Streamlit Cloud Secrets.")
+        else:
+            with st.spinner(f"Logging in and submitting attendance for {selected_attendance_date.strftime('%d-%b-%y')}..."):
+                result = run_swipe_for_date(emp_user, emp_pass, selected_attendance_date)
+
+            # Success / Error Handling (without screenshots)
+            if result["status"] == "success":
+                st.success(f"✅ Attendance successfully submitted for **{result['date']}** (Status: In Process)")
+            else:
+                st.error(f"Failed to submit attendance for {result['date']}: {result['message']}")
