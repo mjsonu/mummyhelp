@@ -30,8 +30,8 @@ st.markdown("""
 <style>
     .main { padding-top: 1rem; }
     .block-container { max-width: 700px; padding-left: 1rem; padding-right: 1rem; }
-    h1 { text-align: center; margin-bottom: 0.2rem; }
-    .subtitle { text-align: center; color: #666; margin-bottom: 1.5rem; }
+    h1 { text-align: left; margin-bottom: 0.2rem; }
+    .subtitle { text-align: right; color: #666; margin-bottom: 1.5rem; }
     .section-title { font-size: 1.15rem; font-weight: 600; margin-top: 1.5rem; margin-bottom: 0.8rem; }
     div.stButton > button { width: 100%; height: 3rem; font-size: 1rem; font-weight: 600; }
 </style>
